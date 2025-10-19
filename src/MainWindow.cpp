@@ -5,23 +5,287 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QBrush>
+#include <QColor>
+#include <QFont>
 #include <QFontDatabase>
 #include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenuBar>
+#include <QList>
 #include <QPalette>
 #include <QPlainTextEdit>
 #include <QProcessEnvironment>
 #include <QStatusBar>
 #include <QTextCharFormat>
 #include <QTextCursor>
+#include <QTimer>
 #include <QVariant>
+#include <QVector>
 #include <QVBoxLayout>
 #include <QWidget>
-#include <QTimer>
 
 namespace {
+
+struct FormattedFragment {
+    QString text;
+    QTextCharFormat format;
+};
+
+QColor basicAnsiColor(int index, bool bright)
+{
+    static const QColor normal[] = {
+        QColor(0, 0, 0),       // black
+        QColor(170, 0, 0),     // red
+        QColor(0, 170, 0),     // green
+        QColor(170, 85, 0),    // yellow
+        QColor(0, 0, 170),     // blue
+        QColor(170, 0, 170),   // magenta
+        QColor(0, 170, 170),   // cyan
+        QColor(170, 170, 170)  // white
+    };
+    static const QColor brightColors[] = {
+        QColor(85, 85, 85),    // bright black / gray
+        QColor(255, 85, 85),   // bright red
+        QColor(85, 255, 85),   // bright green
+        QColor(255, 255, 85),  // bright yellow
+        QColor(85, 85, 255),   // bright blue
+        QColor(255, 85, 255),  // bright magenta
+        QColor(85, 255, 255),  // bright cyan
+        QColor(255, 255, 255)  // bright white
+    };
+
+    index = qBound(0, index, 7);
+    return bright ? brightColors[index] : normal[index];
+}
+
+QColor colorFrom256Palette(int index)
+{
+    if (index < 0) {
+        index = 0;
+    }
+    if (index > 255) {
+        index = 255;
+    }
+
+    if (index < 16) {
+        const bool bright = index >= 8;
+        return basicAnsiColor(index % 8, bright);
+    }
+
+    if (index < 232) {
+        const int base = index - 16;
+        const int r = base / 36;
+        const int g = (base / 6) % 6;
+        const int b = base % 6;
+        auto component = [](int value) {
+            if (value == 0) {
+                return 0;
+            }
+            return 55 + (value * 40);
+        };
+        return QColor(component(r), component(g), component(b));
+    }
+
+    const int gray = 8 + ((index - 232) * 10);
+    return QColor(gray, gray, gray);
+}
+
+void applyExtendedColor(QTextCharFormat &format,
+                        bool isForeground,
+                        const QTextCharFormat &baseFormat,
+                        int mode,
+                        const QList<int> &params,
+                        int &i)
+{
+    if (mode == 5) {
+        if (i + 1 >= params.size()) {
+            return;
+        }
+        const QColor color = colorFrom256Palette(params.at(++i));
+        if (isForeground) {
+            format.setForeground(color);
+        } else {
+            format.setBackground(color);
+        }
+    } else if (mode == 2) {
+        if (i + 3 >= params.size()) {
+            return;
+        }
+        const int r = params.at(++i);
+        const int g = params.at(++i);
+        const int b = params.at(++i);
+        const QColor color(r, g, b);
+        if (!color.isValid()) {
+            return;
+        }
+        if (isForeground) {
+            format.setForeground(color);
+        } else {
+            format.setBackground(color);
+        }
+    } else {
+        if (isForeground) {
+            format.setForeground(baseFormat.foreground());
+        } else {
+            format.setBackground(baseFormat.background());
+        }
+    }
+}
+
+void applySgr(const QList<int> &params,
+              QTextCharFormat &currentFormat,
+              const QTextCharFormat &baseFormat)
+{
+    if (params.isEmpty()) {
+        currentFormat = baseFormat;
+        return;
+    }
+
+    for (int i = 0; i < params.size(); ++i) {
+        const int code = params.at(i);
+        switch (code) {
+        case 0:
+            currentFormat = baseFormat;
+            break;
+        case 1:
+            currentFormat.setFontWeight(QFont::Bold);
+            break;
+        case 3:
+            currentFormat.setFontItalic(true);
+            break;
+        case 4:
+            currentFormat.setFontUnderline(true);
+            break;
+        case 22:
+            currentFormat.setFontWeight(baseFormat.fontWeight());
+            break;
+        case 23:
+            currentFormat.setFontItalic(baseFormat.fontItalic());
+            break;
+        case 24:
+            currentFormat.setFontUnderline(baseFormat.fontUnderline());
+            break;
+        case 30: case 31: case 32: case 33:
+        case 34: case 35: case 36: case 37:
+            currentFormat.setForeground(basicAnsiColor(code - 30, false));
+            break;
+        case 39:
+            currentFormat.setForeground(baseFormat.foreground());
+            break;
+        case 40: case 41: case 42: case 43:
+        case 44: case 45: case 46: case 47:
+            currentFormat.setBackground(basicAnsiColor(code - 40, false));
+            break;
+        case 49:
+            currentFormat.setBackground(baseFormat.background());
+            break;
+        case 90: case 91: case 92: case 93:
+        case 94: case 95: case 96: case 97:
+            currentFormat.setForeground(basicAnsiColor(code - 90, true));
+            break;
+        case 100: case 101: case 102: case 103:
+        case 104: case 105: case 106: case 107:
+            currentFormat.setBackground(basicAnsiColor(code - 100, true));
+            break;
+        case 38:
+        case 48:
+            if (i + 1 < params.size()) {
+                const bool isForeground = (code == 38);
+                const int mode = params.at(++i);
+                applyExtendedColor(currentFormat, isForeground, baseFormat, mode, params, i);
+            }
+            break;
+        default:
+            break;
+        }
+    }
+}
+
+QVector<FormattedFragment> parseAnsiText(const QString &input,
+                                         const QTextCharFormat &baseFormat)
+{
+    QVector<FormattedFragment> fragments;
+    QTextCharFormat currentFormat = baseFormat;
+    QString buffer;
+
+    auto flushBuffer = [&]() {
+        if (buffer.isEmpty()) {
+            return;
+        }
+        fragments.append({buffer, currentFormat});
+        buffer.clear();
+    };
+
+    for (int i = 0; i < input.size(); ++i) {
+        const QChar ch = input.at(i);
+        if (ch == QLatin1Char('\x1b')) {
+            flushBuffer();
+            if (i + 1 >= input.size()) {
+                continue;
+            }
+            if (input.at(i + 1) != QLatin1Char('[')) {
+                continue;
+            }
+
+            int j = i + 2;
+            QString number;
+            QList<int> params;
+            for (; j < input.size(); ++j) {
+                const QChar c = input.at(j);
+                if (c.isDigit()) {
+                    number.append(c);
+                    continue;
+                }
+                if (c == QLatin1Char(';')) {
+                    params.append(number.isEmpty() ? 0 : number.toInt());
+                    number.clear();
+                    continue;
+                }
+                if (c == QLatin1Char('?')) {
+                    continue;
+                }
+                if (!number.isEmpty() || params.isEmpty()) {
+                    params.append(number.isEmpty() ? 0 : number.toInt());
+                    number.clear();
+                }
+                if (c == QLatin1Char('m')) {
+                    applySgr(params, currentFormat, baseFormat);
+                }
+                break;
+            }
+            i = j;
+            continue;
+        }
+
+        if (ch == QLatin1Char('\r')) {
+            if (i + 1 < input.size() && input.at(i + 1) == QLatin1Char('\n')) {
+                continue;
+            }
+            buffer.append(QLatin1Char('\n'));
+            flushBuffer();
+            continue;
+        }
+
+        if (ch == QLatin1Char('\b')) {
+            if (!buffer.isEmpty()) {
+                buffer.chop(1);
+            }
+            continue;
+        }
+
+        if (ch == QLatin1Char('\a')) {
+            continue;
+        }
+
+        buffer.append(ch);
+    }
+
+    flushBuffer();
+    return fragments;
+}
+
 QString formatCommand(const CommandDescriptor &descriptor, const QString &argument)
 {
     if (CommandCatalog::requiresUserInput(descriptor)) {
@@ -41,19 +305,23 @@ MainWindow::MainWindow(QWidget *parent)
     auto *central = new QWidget(this);
     auto *layout = new QVBoxLayout(central);
 
+    const QFont retroFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+    setFont(retroFont);
+
     m_display = new QPlainTextEdit(central);
     m_display->setReadOnly(true);
-    const QFont retroFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
     m_display->setFont(retroFont);
 
     m_input = new QLineEdit(central);
     m_input->setPlaceholderText(tr("Type a message or pick a command from the menu"));
+    m_input->setFont(retroFont);
 
     layout->addWidget(m_display);
     layout->addWidget(m_input);
     setCentralWidget(central);
 
     m_statusLabel = new QLabel(this);
+    m_statusLabel->setFont(retroFont);
     statusBar()->addWidget(m_statusLabel);
 
     createMenus();
@@ -180,18 +448,25 @@ void MainWindow::appendMessage(const QString &text, bool isError)
     }
 
     QString sanitized = text;
-    if (!sanitized.endsWith('\n')) {
+    if (!sanitized.isEmpty() && !sanitized.endsWith('\n')) {
         sanitized.append('\n');
     }
 
+    QTextCharFormat baseFormat;
+    baseFormat.setForeground(isError ? QBrush(Qt::red)
+                                    : QBrush(m_display->palette().color(QPalette::Text)));
+    baseFormat.setBackground(QBrush(m_display->palette().color(QPalette::Base)));
+    baseFormat.setFont(m_display->font());
+    baseFormat.setFontWeight(QFont::Normal);
+    baseFormat.setFontItalic(false);
+    baseFormat.setFontUnderline(false);
+
+    const QVector<FormattedFragment> fragments = parseAnsiText(sanitized, baseFormat);
+
     QTextCursor cursor = m_display->textCursor();
     cursor.movePosition(QTextCursor::End);
-    if (isError) {
-        QTextCharFormat format;
-        format.setForeground(Qt::red);
-        cursor.insertText(sanitized, format);
-    } else {
-        cursor.insertText(sanitized);
+    for (const auto &fragment : fragments) {
+        cursor.insertText(fragment.text, fragment.format);
     }
     m_display->setTextCursor(cursor);
     m_display->ensureCursorVisible();
