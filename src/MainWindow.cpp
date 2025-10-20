@@ -455,7 +455,6 @@ MainWindow::MainWindow(QWidget *parent)
     , m_disconnectAction(nullptr)
     , m_isConnected(false)
     , m_nicknameConfirmed(false)
-    , m_pendingLineBreak(false)
 {
     m_client = new ChatterClient(this);
 
@@ -683,56 +682,42 @@ void MainWindow::appendMessage(const QString &text, bool isError)
     blockFormat.setBottomMargin(0);
     blockFormat.setLineHeight(100, QTextBlockFormat::ProportionalHeight);
 
-    auto insertBlockWithFormat = [&]() {
-        cursor.insertBlock();
+    auto applyBlockFormat = [&]() {
         cursor.setBlockFormat(blockFormat);
     };
 
-    bool blockBreakPending = m_pendingLineBreak;
-
-    auto ensureBlockBreak = [&]() {
-        if (blockBreakPending) {
-            insertBlockWithFormat();
-            blockBreakPending = false;
-        }
-    };
-
     cursor.beginEditBlock();
-    cursor.setBlockFormat(blockFormat);
-    ensureBlockBreak();
+    applyBlockFormat();
 
     for (const auto &fragment : fragments) {
         const QString &fragmentText = fragment.text;
         int position = 0;
-        while (position < fragmentText.size()) {
+
+        while (position <= fragmentText.size()) {
             const int newlineIndex = fragmentText.indexOf(QLatin1Char('\n'), position);
-            if (newlineIndex == -1) {
-                const QString chunk = fragmentText.mid(position);
-                if (!chunk.isEmpty()) {
-                    ensureBlockBreak();
-                    insertFragmentWithLinks(cursor, chunk, fragment.format);
-                }
-                position = fragmentText.size();
-                break;
-            }
+            const bool hasNewline = newlineIndex != -1;
+            const int chunkEnd = hasNewline ? newlineIndex : fragmentText.size();
 
-            const int length = newlineIndex - position;
-            if (length > 0) {
-                const QString chunk = fragmentText.mid(position, length);
-                ensureBlockBreak();
+            if (chunkEnd > position) {
+                const QString chunk = fragmentText.mid(position, chunkEnd - position);
+                applyBlockFormat();
                 insertFragmentWithLinks(cursor, chunk, fragment.format);
-            } else if (blockBreakPending) {
-                ensureBlockBreak();
             }
 
-            blockBreakPending = true;
-            position = newlineIndex + 1;
+            if (hasNewline) {
+                cursor.insertBlock();
+                applyBlockFormat();
+                position = newlineIndex + 1;
+                continue;
+            }
+
+            break;
         }
     }
+
     cursor.endEditBlock();
     m_display->setTextCursor(cursor);
     m_display->ensureCursorVisible();
-    m_pendingLineBreak = blockBreakPending;
 }
 
 QString MainWindow::promptForArgument(const QString &hint) const
