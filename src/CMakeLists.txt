@@ -3,12 +3,14 @@ set(SOURCES
     MainWindow.cpp
     ChatterClient.cpp
     CommandCatalog.cpp
+    TerminalWidget.cpp
 )
 
 set(HEADERS
     MainWindow.h
     ChatterClient.h
     CommandCatalog.h
+    TerminalWidget.h
 )
 
 add_executable(chatter-frontend

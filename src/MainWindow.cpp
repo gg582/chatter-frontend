@@ -2,6 +2,7 @@
 
 #include "ChatterClient.h"
 #include "CommandCatalog.h"
+#include "TerminalWidget.h"
 
 #include <QAction>
 #include <QApplication>
@@ -458,32 +459,32 @@ MainWindow::MainWindow(QWidget *parent)
 {
     m_client = new ChatterClient(this);
 
-    auto *central = new QWidget(this);
-    auto *layout = new QVBoxLayout(central);
-
     const QFont retroFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
     setFont(retroFont);
 
-    m_display = new QTextBrowser(central);
-    m_display->setReadOnly(true);
-    m_display->setFont(retroFont);
-    m_display->setOpenLinks(true);
-    m_display->setOpenExternalLinks(true);
-    m_display->setLineWrapMode(QTextEdit::NoWrap);
-    m_display->setWordWrapMode(QTextOption::NoWrap);
-    m_display->setUndoRedoEnabled(false);
+    m_terminal = new TerminalWidget(this);
+    setCentralWidget(m_terminal);
 
-    QTextOption textOption = m_display->document()->defaultTextOption();
-    textOption.setFlags(textOption.flags() & ~QTextOption::AddSpaceForLineAndParagraphSeparators);
-    m_display->document()->setDefaultTextOption(textOption);
+    m_display = m_terminal ? m_terminal->display() : nullptr;
+    if (m_display) {
+        m_display->setReadOnly(true);
+        m_display->setFont(retroFont);
+        m_display->setOpenLinks(true);
+        m_display->setOpenExternalLinks(true);
+        m_display->setLineWrapMode(QTextEdit::NoWrap);
+        m_display->setWordWrapMode(QTextOption::NoWrap);
+        m_display->setUndoRedoEnabled(false);
 
-    m_input = new QLineEdit(central);
-    m_input->setPlaceholderText(tr("Type a message or pick a command from the menu"));
-    m_input->setFont(retroFont);
+        QTextOption textOption = m_display->document()->defaultTextOption();
+        textOption.setFlags(textOption.flags() & ~QTextOption::AddSpaceForLineAndParagraphSeparators);
+        m_display->document()->setDefaultTextOption(textOption);
+    }
 
-    layout->addWidget(m_display);
-    layout->addWidget(m_input);
-    setCentralWidget(central);
+    m_input = m_terminal ? m_terminal->input() : nullptr;
+    if (m_input) {
+        m_input->setPlaceholderText(tr("Type a message or pick a command from the menu"));
+        m_input->setFont(retroFont);
+    }
 
     m_statusLabel = new QLabel(this);
     m_statusLabel->setFont(retroFont);
@@ -492,8 +493,10 @@ MainWindow::MainWindow(QWidget *parent)
     createMenus();
     applyRetroPalette();
 
-    connect(m_input.data(), &QLineEdit::returnPressed,
-            this, &MainWindow::handleSendRequested);
+    if (m_input) {
+        connect(m_input.data(), &QLineEdit::returnPressed,
+                this, &MainWindow::handleSendRequested);
+    }
     connect(m_client.data(), &ChatterClient::outputReceived,
             this, &MainWindow::handleClientOutput);
     connect(m_client.data(), &ChatterClient::errorReceived,
