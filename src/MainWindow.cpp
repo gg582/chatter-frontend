@@ -760,7 +760,7 @@ void MainWindow::sendAsciiArtLines(const QStringList &lines)
     for (const QString &line : lines) {
         m_client->sendCommand(line);
     }
-    m_client->sendCommand(QStringLiteral("/commit"));
+    m_client->sendCommand(QStringLiteral(">/__ARTWORK_END>"));
 }
 
 void MainWindow::saveAsciiArtLocally(const QStringList &lines)
