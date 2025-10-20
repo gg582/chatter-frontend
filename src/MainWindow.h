@@ -47,4 +47,5 @@ private:
     QAction *m_disconnectAction;
     bool m_isConnected;
     bool m_nicknameConfirmed;
+    bool m_pendingLineBreak;
 };

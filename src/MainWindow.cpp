@@ -454,6 +454,7 @@ MainWindow::MainWindow(QWidget *parent)
     , m_disconnectAction(nullptr)
     , m_isConnected(false)
     , m_nicknameConfirmed(false)
+    , m_pendingLineBreak(false)
 {
     m_client = new ChatterClient(this);
 
@@ -659,9 +660,6 @@ void MainWindow::appendMessage(const QString &text, bool isError)
     QString sanitized = text;
     sanitized.replace("\r\n", "\n");
     sanitized.replace('\r', '\n');
-    if (!sanitized.isEmpty() && !sanitized.endsWith('\n')) {
-        sanitized.append('\n');
-    }
 
     QTextCharFormat baseFormat;
     baseFormat.setForeground(isError ? QBrush(Qt::red)
@@ -682,27 +680,56 @@ void MainWindow::appendMessage(const QString &text, bool isError)
     blockFormat.setBottomMargin(0);
     blockFormat.setLineHeight(100, QTextBlockFormat::ProportionalHeight);
 
+    auto insertBlockWithFormat = [&]() {
+        cursor.insertBlock();
+        cursor.setBlockFormat(blockFormat);
+    };
+
+    bool blockBreakPending = m_pendingLineBreak;
+
+    auto ensureBlockBreak = [&]() {
+        if (blockBreakPending) {
+            insertBlockWithFormat();
+            blockBreakPending = false;
+        }
+    };
+
     cursor.beginEditBlock();
     cursor.setBlockFormat(blockFormat);
+    ensureBlockBreak();
+
     for (const auto &fragment : fragments) {
-        const QStringList lines = fragment.text.split('\n');
-        for (int i = 0; i < lines.size(); ++i) {
-            if (i > 0) {
-                cursor.insertBlock();
-                cursor.setBlockFormat(blockFormat);
+        const QString &fragmentText = fragment.text;
+        int position = 0;
+        while (position < fragmentText.size()) {
+            const int newlineIndex = fragmentText.indexOf(QLatin1Char('\n'), position);
+            if (newlineIndex == -1) {
+                const QString chunk = fragmentText.mid(position);
+                if (!chunk.isEmpty()) {
+                    ensureBlockBreak();
+                    insertFragmentWithLinks(cursor, chunk, fragment.format);
+                }
+                position = fragmentText.size();
+                break;
             }
 
-            const QString &line = lines.at(i);
-            if (line.isEmpty()) {
-                continue;
+            const int length = newlineIndex - position;
+            if (length > 0) {
+                const QString chunk = fragmentText.mid(position, length);
+                ensureBlockBreak();
+                insertFragmentWithLinks(cursor, chunk, fragment.format);
+            } else if (blockBreakPending) {
+                ensureBlockBreak();
             }
 
-            insertFragmentWithLinks(cursor, line, fragment.format);
+            blockBreakPending = true;
+            position = newlineIndex + 1;
         }
     }
     cursor.endEditBlock();
     m_display->setTextCursor(cursor);
     m_display->ensureCursorVisible();
+    m_pendingLineBreak = blockBreakPending;
 }
 
 QString MainWindow::promptForArgument(const QString &hint) const
