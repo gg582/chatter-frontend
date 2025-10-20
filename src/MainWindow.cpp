@@ -7,30 +7,142 @@
 #include <QApplication>
 #include <QBrush>
 #include <QColor>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QDir>
+#include <QFileDialog>
 #include <QFont>
 #include <QFontDatabase>
+#include <QHBoxLayout>
 #include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
-#include <QMenuBar>
 #include <QList>
+#include <QMenuBar>
 #include <QPalette>
-#include <QRegularExpression>
-#include <QTextBrowser>
-#include <QMessageBox>
+#include <QPlainTextEdit>
 #include <QProcessEnvironment>
+#include <QPushButton>
+#include <QRegularExpression>
+#include <QSaveFile>
 #include <QStatusBar>
+#include <QMessageBox>
+#include <QTextBrowser>
 #include <QTextCharFormat>
 #include <QTextCursor>
 #include <QTextEdit>
 #include <QTextOption>
+#include <QTextStream>
 #include <QTimer>
 #include <QVariant>
 #include <QVector>
 #include <QVBoxLayout>
 #include <QWidget>
+#include <QStandardPaths>
+#include <QIODevice>
+
+#include <algorithm>
 
 namespace {
+
+constexpr int kAsciiMaxLines = 64;
+
+class AsciiComposerDialog : public QDialog
+{
+public:
+    explicit AsciiComposerDialog(QWidget *parent = nullptr)
+        : QDialog(parent)
+        , m_editor(new QPlainTextEdit(this))
+        , m_lineCountLabel(new QLabel(this))
+    {
+        setWindowTitle(tr("ASCII Art Composer"));
+        setModal(true);
+
+        m_editor->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+        m_editor->setWordWrapMode(QTextOption::NoWrap);
+        m_editor->setTabChangesFocus(false);
+        m_editor->setPlaceholderText(tr("Compose up to 64 lines of ASCII art."));
+
+        auto *buttonBox = new QDialogButtonBox(this);
+        m_commitButton = buttonBox->addButton(tr("Commit"), QDialogButtonBox::AcceptRole);
+        m_commitButton->setDefault(true);
+        buttonBox->addButton(QDialogButtonBox::Cancel);
+
+        auto *layout = new QVBoxLayout(this);
+        layout->addWidget(m_editor);
+
+        auto *footerLayout = new QHBoxLayout();
+        footerLayout->addWidget(m_lineCountLabel);
+        footerLayout->addStretch();
+        footerLayout->addWidget(buttonBox);
+        layout->addLayout(footerLayout);
+
+        connect(buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
+        connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
+        connect(m_editor, &QPlainTextEdit::textChanged, this, [this]() {
+            enforceLineLimit();
+            updateStatus();
+        });
+
+        updateStatus();
+    }
+
+    QStringList lines() const
+    {
+        const QString text = m_editor->toPlainText();
+        if (text.isEmpty()) {
+            return {};
+        }
+        QStringList collected = text.split('\n', Qt::KeepEmptyParts);
+        if (collected.size() > kAsciiMaxLines) {
+            collected = collected.mid(0, kAsciiMaxLines);
+        }
+        return collected;
+    }
+
+private:
+    void enforceLineLimit()
+    {
+        QString text = m_editor->toPlainText();
+        QStringList collected = text.split('\n', Qt::KeepEmptyParts);
+        if (text.isEmpty() || collected.size() <= kAsciiMaxLines) {
+            return;
+        }
+
+        collected = collected.mid(0, kAsciiMaxLines);
+        const QString trimmed = collected.join('\n');
+
+        QTextCursor cursor = m_editor->textCursor();
+        const int position = cursor.position();
+
+        m_editor->blockSignals(true);
+        m_editor->setPlainText(trimmed);
+        cursor = m_editor->textCursor();
+        cursor.setPosition(std::min(position, int(trimmed.size())));
+        m_editor->setTextCursor(cursor);
+        m_editor->blockSignals(false);
+    }
+
+    void updateStatus()
+    {
+        const QString text = m_editor->toPlainText();
+        QStringList collected = text.isEmpty() ? QStringList() : text.split('\n', Qt::KeepEmptyParts);
+        const int count = text.isEmpty() ? 0 : collected.size();
+
+        m_lineCountLabel->setText(tr("Lines: %1 / %2").arg(count).arg(kAsciiMaxLines));
+
+        const bool hasContent = std::any_of(collected.cbegin(), collected.cend(), [](const QString &line) {
+            return !line.isEmpty();
+        });
+
+        const bool withinLimit = count > 0 && count <= kAsciiMaxLines;
+        m_commitButton->setEnabled(hasContent && withinLimit);
+    }
+
+    QPlainTextEdit *m_editor;
+    QLabel *m_lineCountLabel;
+    QPushButton *m_commitButton;
+};
 
 struct FormattedFragment {
     QString text;
@@ -445,6 +557,11 @@ void MainWindow::handleCommandActionTriggered()
     }
 
     const CommandDescriptor descriptor = data.value<CommandDescriptor>();
+    if (descriptor.command == QStringLiteral("/asciiart")) {
+        openAsciiArtComposer();
+        return;
+    }
+
     QString argument;
     if (CommandCatalog::requiresUserInput(descriptor)) {
         argument = promptForArgument(descriptor.placeholderHint);
@@ -614,6 +731,93 @@ bool MainWindow::ensureNickname(bool forcePrompt)
         }
         return true;
     }
+}
+
+void MainWindow::openAsciiArtComposer()
+{
+    AsciiComposerDialog dialog(this);
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    const QStringList lines = dialog.lines();
+    if (lines.isEmpty()) {
+        return;
+    }
+
+    statusBar()->showMessage(tr("Submitting ASCII art"), 2000);
+    sendAsciiArtLines(lines);
+    saveAsciiArtLocally(lines);
+}
+
+void MainWindow::sendAsciiArtLines(const QStringList &lines)
+{
+    if (!m_client || lines.isEmpty()) {
+        return;
+    }
+
+    m_client->sendCommand(QStringLiteral("/asciiart"));
+    for (const QString &line : lines) {
+        m_client->sendCommand(line);
+    }
+    m_client->sendCommand(QStringLiteral("/commit"));
+}
+
+void MainWindow::saveAsciiArtLocally(const QStringList &lines)
+{
+    if (lines.isEmpty()) {
+        return;
+    }
+
+    const QString documentsDir = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+    QString basePath = documentsDir.isEmpty() ? QDir::homePath() : documentsDir;
+    if (basePath.isEmpty()) {
+        basePath = QDir::currentPath();
+    }
+
+    const QString suggestedPath = QDir(basePath).filePath(QStringLiteral("ascii-art.txt"));
+    const QString filePath = QFileDialog::getSaveFileName(this,
+                                                         tr("Save ASCII Art"),
+                                                         suggestedPath,
+                                                         tr("Text Files (*.txt);;All Files (*.*)"));
+    if (filePath.isEmpty()) {
+        statusBar()->showMessage(tr("Save canceled"), 3000);
+        return;
+    }
+
+    QSaveFile file(filePath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QMessageBox::warning(this,
+                             tr("Save Failed"),
+                             tr("Couldn't open %1 for writing.").arg(QDir::toNativeSeparators(filePath)));
+        return;
+    }
+
+    QTextStream stream(&file);
+    for (int i = 0; i < lines.size(); ++i) {
+        stream << lines.at(i);
+        if (i + 1 < lines.size()) {
+            stream << '\n';
+        }
+    }
+
+    if (stream.status() != QTextStream::Ok) {
+        QMessageBox::warning(this,
+                             tr("Save Failed"),
+                             tr("An error occurred while writing %1.")
+                                 .arg(QDir::toNativeSeparators(filePath)));
+        file.cancelWriting();
+        return;
+    }
+
+    if (!file.commit()) {
+        QMessageBox::warning(this,
+                             tr("Save Failed"),
+                             tr("Couldn't finalize %1.").arg(QDir::toNativeSeparators(filePath)));
+        return;
+    }
+
+    statusBar()->showMessage(tr("Saved ASCII art to %1").arg(QDir::toNativeSeparators(filePath)), 5000);
 }
 
 void MainWindow::applyRetroPalette()

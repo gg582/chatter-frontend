@@ -2,6 +2,7 @@
 
 #include <QMainWindow>
 #include <QPointer>
+#include <QStringList>
 
 class QLineEdit;
 class QTextBrowser;
@@ -34,6 +35,9 @@ private:
     QString promptForArgument(const QString &hint) const;
     void applyRetroPalette();
     bool ensureNickname(bool forcePrompt = false);
+    void openAsciiArtComposer();
+    void sendAsciiArtLines(const QStringList &lines);
+    void saveAsciiArtLocally(const QStringList &lines);
 
     QPointer<QTextBrowser> m_display;
     QPointer<QLineEdit> m_input;
