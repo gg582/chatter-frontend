@@ -14,6 +14,7 @@
 #include <QFileDialog>
 #include <QFont>
 #include <QFontDatabase>
+#include <QFontMetricsF>
 #include <QHBoxLayout>
 #include <QInputDialog>
 #include <QLabel>
@@ -45,6 +46,7 @@
 #include <QIODevice>
 
 #include <algorithm>
+#include <cmath>
 
 namespace {
 
@@ -455,7 +457,6 @@ MainWindow::MainWindow(QWidget *parent)
     , m_disconnectAction(nullptr)
     , m_isConnected(false)
     , m_nicknameConfirmed(false)
-    , m_pendingLineBreak(false)
 {
     m_client = new ChatterClient(this);
 
@@ -662,7 +663,6 @@ void MainWindow::appendMessage(const QString &text, bool isError)
 
     QString sanitized = text;
     sanitized.replace("\r\n", "\n");
-    sanitized.replace('\r', '\n');
 
     QTextCharFormat baseFormat;
     baseFormat.setForeground(isError ? QBrush(Qt::red)
@@ -681,58 +681,68 @@ void MainWindow::appendMessage(const QString &text, bool isError)
     QTextBlockFormat blockFormat;
     blockFormat.setTopMargin(0);
     blockFormat.setBottomMargin(0);
-    blockFormat.setLineHeight(100, QTextBlockFormat::ProportionalHeight);
+    blockFormat.setParagraphSpacing(0);
+    const QFontMetricsF metrics(m_display->font());
+    const int lineHeight = qMax(1, static_cast<int>(std::round(metrics.ascent() + metrics.descent())));
+    blockFormat.setLineHeight(lineHeight, QTextBlockFormat::FixedHeight);
 
-    auto insertBlockWithFormat = [&]() {
-        cursor.insertBlock();
+    auto applyBlockFormat = [&]() {
         cursor.setBlockFormat(blockFormat);
     };
 
-    bool blockBreakPending = m_pendingLineBreak;
-
-    auto ensureBlockBreak = [&]() {
-        if (blockBreakPending) {
-            insertBlockWithFormat();
-            blockBreakPending = false;
-        }
-    };
-
     cursor.beginEditBlock();
-    cursor.setBlockFormat(blockFormat);
-    ensureBlockBreak();
+    applyBlockFormat();
 
     for (const auto &fragment : fragments) {
         const QString &fragmentText = fragment.text;
         int position = 0;
+
         while (position < fragmentText.size()) {
             const int newlineIndex = fragmentText.indexOf(QLatin1Char('\n'), position);
-            if (newlineIndex == -1) {
-                const QString chunk = fragmentText.mid(position);
-                if (!chunk.isEmpty()) {
-                    ensureBlockBreak();
-                    insertFragmentWithLinks(cursor, chunk, fragment.format);
-                }
-                position = fragmentText.size();
-                break;
+            const int carriageIndex = fragmentText.indexOf(QLatin1Char('\r'), position);
+
+            int breakIndex = fragmentText.size();
+            enum class ControlType { None, Newline, Carriage };
+            ControlType control = ControlType::None;
+
+            if (newlineIndex != -1 && (carriageIndex == -1 || newlineIndex < carriageIndex)) {
+                breakIndex = newlineIndex;
+                control = ControlType::Newline;
+            } else if (carriageIndex != -1) {
+                breakIndex = carriageIndex;
+                control = ControlType::Carriage;
             }
 
-            const int length = newlineIndex - position;
-            if (length > 0) {
-                const QString chunk = fragmentText.mid(position, length);
-                ensureBlockBreak();
+            if (breakIndex > position) {
+                const QString chunk = fragmentText.mid(position, breakIndex - position);
+                applyBlockFormat();
                 insertFragmentWithLinks(cursor, chunk, fragment.format);
-            } else if (blockBreakPending) {
-                ensureBlockBreak();
             }
 
-            blockBreakPending = true;
-            position = newlineIndex + 1;
+            if (control == ControlType::Newline) {
+                cursor.insertBlock();
+                applyBlockFormat();
+                position = breakIndex + 1;
+                continue;
+            }
+
+            if (control == ControlType::Carriage) {
+                cursor.movePosition(QTextCursor::StartOfBlock);
+                cursor.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+                cursor.removeSelectedText();
+                applyBlockFormat();
+                position = breakIndex + 1;
+                continue;
+            }
+
+            position = breakIndex;
+            break;
         }
     }
+
     cursor.endEditBlock();
     m_display->setTextCursor(cursor);
     m_display->ensureCursorVisible();
-    m_pendingLineBreak = blockBreakPending;
 }
 
 QString MainWindow::promptForArgument(const QString &hint) const

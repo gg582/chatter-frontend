@@ -5,6 +5,8 @@
 #include <QLineEdit>
 #include <QScrollBar>
 #include <QTextBrowser>
+#include <QTextDocument>
+#include <QTextEdit>
 #include <QVBoxLayout>
 
 TerminalWidget::TerminalWidget(QWidget *parent)
@@ -19,6 +21,10 @@ TerminalWidget::TerminalWidget(QWidget *parent)
     if (m_display) {
         m_display->setObjectName(QStringLiteral("terminalDisplay"));
         m_display->installEventFilter(this);
+        m_display->setLineWrapMode(QTextEdit::NoWrap);
+        if (auto *doc = m_display->document()) {
+            doc->setDocumentMargin(0);
+        }
         layout->addWidget(m_display);
     }
 
