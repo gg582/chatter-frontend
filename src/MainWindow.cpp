@@ -30,6 +30,7 @@
 #include <QTextBrowser>
 #include <QTextCharFormat>
 #include <QTextCursor>
+#include <QTextBlockFormat>
 #include <QTextEdit>
 #include <QTextOption>
 #include <QTextStream>
@@ -656,6 +657,8 @@ void MainWindow::appendMessage(const QString &text, bool isError)
     }
 
     QString sanitized = text;
+    sanitized.replace("\r\n", "\n");
+    sanitized.replace('\r', '\n');
     if (!sanitized.isEmpty() && !sanitized.endsWith('\n')) {
         sanitized.append('\n');
     }
@@ -673,9 +676,31 @@ void MainWindow::appendMessage(const QString &text, bool isError)
 
     QTextCursor cursor = m_display->textCursor();
     cursor.movePosition(QTextCursor::End);
+
+    QTextBlockFormat blockFormat;
+    blockFormat.setTopMargin(0);
+    blockFormat.setBottomMargin(0);
+    blockFormat.setLineHeight(100, QTextBlockFormat::ProportionalHeight);
+
+    cursor.beginEditBlock();
+    cursor.setBlockFormat(blockFormat);
     for (const auto &fragment : fragments) {
-        insertFragmentWithLinks(cursor, fragment.text, fragment.format);
+        const QStringList lines = fragment.text.split('\n');
+        for (int i = 0; i < lines.size(); ++i) {
+            if (i > 0) {
+                cursor.insertBlock();
+                cursor.setBlockFormat(blockFormat);
+            }
+
+            const QString &line = lines.at(i);
+            if (line.isEmpty()) {
+                continue;
+            }
+
+            insertFragmentWithLinks(cursor, line, fragment.format);
+        }
     }
+    cursor.endEditBlock();
     m_display->setTextCursor(cursor);
     m_display->ensureCursorVisible();
 }
