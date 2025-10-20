@@ -17,6 +17,7 @@
 #include <QPalette>
 #include <QRegularExpression>
 #include <QTextBrowser>
+#include <QMessageBox>
 #include <QProcessEnvironment>
 #include <QStatusBar>
 #include <QTextCharFormat>
@@ -337,6 +338,8 @@ MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , m_connectAction(nullptr)
     , m_disconnectAction(nullptr)
+    , m_isConnected(false)
+    , m_nicknameConfirmed(false)
 {
     m_client = new ChatterClient(this);
 
@@ -379,7 +382,13 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_client.data(), &ChatterClient::connectionStateChanged,
             this, &MainWindow::handleConnectionStateChanged);
 
-    QTimer::singleShot(0, this, &MainWindow::initiateConnection);
+    QTimer::singleShot(0, this, [this]() {
+        if (ensureNickname(true)) {
+            initiateConnection();
+        } else if (m_statusLabel) {
+            m_statusLabel->setText(tr("Set a nickname to connect"));
+        }
+    });
 }
 
 void MainWindow::handleSendRequested()
@@ -414,6 +423,7 @@ void MainWindow::handleConnectionStateChanged(bool connected)
     } else {
         m_statusLabel->setText(tr("Disconnected"));
     }
+    m_isConnected = connected;
     m_connectAction->setEnabled(!connected);
     m_disconnectAction->setEnabled(connected);
 }
@@ -451,6 +461,12 @@ void MainWindow::initiateConnection()
     if (qEnvironmentVariableIsSet("CHATTER_FRONTEND_DISABLE_AUTOSTART")) {
         return;
     }
+    if (!ensureNickname()) {
+        if (m_statusLabel) {
+            m_statusLabel->setText(tr("Set a nickname to connect"));
+        }
+        return;
+    }
     if (m_client) {
         m_client->start();
     }
@@ -463,10 +479,37 @@ void MainWindow::stopConnection()
     }
 }
 
+void MainWindow::changeNickname()
+{
+    const QString previous = m_client ? m_client->username() : QString();
+    if (!ensureNickname(true)) {
+        return;
+    }
+
+    if (!m_client) {
+        return;
+    }
+
+    const QString updated = m_client->username();
+    if (updated == previous) {
+        return;
+    }
+
+    if (m_statusLabel && !m_isConnected) {
+        m_statusLabel->setText(tr("Ready as %1").arg(updated));
+    }
+
+    if (m_isConnected) {
+        stopConnection();
+        QTimer::singleShot(0, this, &MainWindow::initiateConnection);
+    }
+}
+
 void MainWindow::createMenus()
 {
     auto *sessionMenu = menuBar()->addMenu(tr("Session"));
     m_connectAction = sessionMenu->addAction(tr("Connect"), this, &MainWindow::initiateConnection);
+    sessionMenu->addAction(tr("Set Nickname..."), this, &MainWindow::changeNickname);
     m_disconnectAction = sessionMenu->addAction(tr("Disconnect"), this, &MainWindow::stopConnection);
     m_disconnectAction->setEnabled(false);
 
@@ -528,6 +571,49 @@ QString MainWindow::promptForArgument(const QString &hint) const
         return value;
     }
     return QString();
+}
+
+bool MainWindow::ensureNickname(bool forcePrompt)
+{
+    if (!m_client) {
+        return false;
+    }
+
+    if (!forcePrompt && m_nicknameConfirmed && !m_client->username().trimmed().isEmpty()) {
+        return true;
+    }
+
+    QString current = m_client->username().trimmed();
+    bool ok = false;
+
+    while (true) {
+        const QString nickname = QInputDialog::getText(
+            this,
+            tr("Choose your nickname"),
+            tr("Nickname:"),
+            QLineEdit::Normal,
+            current,
+            &ok)
+                                    .trimmed();
+
+        if (!ok) {
+            return false;
+        }
+
+        if (nickname.isEmpty()) {
+            QMessageBox::warning(this,
+                                 tr("Nickname Required"),
+                                 tr("Please enter a nickname to continue."));
+            continue;
+        }
+
+        m_client->setUsername(nickname);
+        m_nicknameConfirmed = true;
+        if (m_statusLabel && !m_isConnected) {
+            m_statusLabel->setText(tr("Ready as %1").arg(nickname));
+        }
+        return true;
+    }
 }
 
 void MainWindow::applyRetroPalette()

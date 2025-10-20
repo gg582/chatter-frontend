@@ -25,6 +25,7 @@ private slots:
     void handleCommandActionTriggered();
     void initiateConnection();
     void stopConnection();
+    void changeNickname();
 
 private:
     void createMenus();
@@ -32,6 +33,7 @@ private:
     void appendMessage(const QString &text, bool isError = false);
     QString promptForArgument(const QString &hint) const;
     void applyRetroPalette();
+    bool ensureNickname(bool forcePrompt = false);
 
     QPointer<QTextBrowser> m_display;
     QPointer<QLineEdit> m_input;
@@ -39,4 +41,6 @@ private:
     QPointer<ChatterClient> m_client;
     QAction *m_connectAction;
     QAction *m_disconnectAction;
+    bool m_isConnected;
+    bool m_nicknameConfirmed;
 };
