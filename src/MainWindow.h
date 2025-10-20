@@ -9,6 +9,7 @@ class QTextBrowser;
 class QLabel;
 class QAction;
 class QMenu;
+class TerminalWidget;
 
 class ChatterClient;
 
@@ -39,6 +40,7 @@ private:
     void sendAsciiArtLines(const QStringList &lines);
     void saveAsciiArtLocally(const QStringList &lines);
 
+    QPointer<TerminalWidget> m_terminal;
     QPointer<QTextBrowser> m_display;
     QPointer<QLineEdit> m_input;
     QPointer<QLabel> m_statusLabel;
