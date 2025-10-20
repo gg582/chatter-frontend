@@ -33,6 +33,7 @@
 #include <QTextEdit>
 #include <QTextOption>
 #include <QTextStream>
+#include <QTextDocument>
 #include <QTimer>
 #include <QVariant>
 #include <QVector>
@@ -469,6 +470,10 @@ MainWindow::MainWindow(QWidget *parent)
     m_display->setLineWrapMode(QTextEdit::NoWrap);
     m_display->setWordWrapMode(QTextOption::NoWrap);
     m_display->setUndoRedoEnabled(false);
+
+    QTextOption textOption = m_display->document()->defaultTextOption();
+    textOption.setFlags(textOption.flags() & ~QTextOption::AddSpaceForLineAndParagraphSeparators);
+    m_display->document()->setDefaultTextOption(textOption);
 
     m_input = new QLineEdit(central);
     m_input->setPlaceholderText(tr("Type a message or pick a command from the menu"));
