@@ -4,7 +4,7 @@
 #include <QPointer>
 
 class QLineEdit;
-class QPlainTextEdit;
+class QTextBrowser;
 class QLabel;
 class QAction;
 class QMenu;
@@ -33,7 +33,7 @@ private:
     QString promptForArgument(const QString &hint) const;
     void applyRetroPalette();
 
-    QPointer<QPlainTextEdit> m_display;
+    QPointer<QTextBrowser> m_display;
     QPointer<QLineEdit> m_input;
     QPointer<QLabel> m_statusLabel;
     QPointer<ChatterClient> m_client;

@@ -15,11 +15,14 @@
 #include <QMenuBar>
 #include <QList>
 #include <QPalette>
-#include <QPlainTextEdit>
+#include <QRegularExpression>
+#include <QTextBrowser>
 #include <QProcessEnvironment>
 #include <QStatusBar>
 #include <QTextCharFormat>
 #include <QTextCursor>
+#include <QTextEdit>
+#include <QTextOption>
 #include <QTimer>
 #include <QVariant>
 #include <QVector>
@@ -203,6 +206,41 @@ void applySgr(const QList<int> &params,
     }
 }
 
+void insertFragmentWithLinks(QTextCursor &cursor,
+                             const QString &text,
+                             const QTextCharFormat &format)
+{
+    if (text.isEmpty()) {
+        return;
+    }
+
+    static const QRegularExpression urlRegex(
+        QStringLiteral(R"((https?://[^\s<>"]+))"));
+
+    int lastIndex = 0;
+    auto it = urlRegex.globalMatch(text);
+    while (it.hasNext()) {
+        const QRegularExpressionMatch match = it.next();
+        const int start = match.capturedStart();
+        if (start > lastIndex) {
+            cursor.insertText(text.mid(lastIndex, start - lastIndex), format);
+        }
+
+        const QString url = match.captured();
+        QTextCharFormat linkFormat = format;
+        linkFormat.setAnchor(true);
+        linkFormat.setAnchorHref(url);
+        linkFormat.setFontUnderline(true);
+        linkFormat.setForeground(QBrush(qApp->palette().color(QPalette::Link)));
+        cursor.insertText(url, linkFormat);
+        lastIndex = match.capturedEnd();
+    }
+
+    if (lastIndex < text.size()) {
+        cursor.insertText(text.mid(lastIndex), format);
+    }
+}
+
 QVector<FormattedFragment> parseAnsiText(const QString &input,
                                          const QTextCharFormat &baseFormat)
 {
@@ -308,9 +346,14 @@ MainWindow::MainWindow(QWidget *parent)
     const QFont retroFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
     setFont(retroFont);
 
-    m_display = new QPlainTextEdit(central);
+    m_display = new QTextBrowser(central);
     m_display->setReadOnly(true);
     m_display->setFont(retroFont);
+    m_display->setOpenLinks(true);
+    m_display->setOpenExternalLinks(true);
+    m_display->setLineWrapMode(QTextEdit::NoWrap);
+    m_display->setWordWrapMode(QTextOption::NoWrap);
+    m_display->setUndoRedoEnabled(false);
 
     m_input = new QLineEdit(central);
     m_input->setPlaceholderText(tr("Type a message or pick a command from the menu"));
@@ -466,7 +509,7 @@ void MainWindow::appendMessage(const QString &text, bool isError)
     QTextCursor cursor = m_display->textCursor();
     cursor.movePosition(QTextCursor::End);
     for (const auto &fragment : fragments) {
-        cursor.insertText(fragment.text, fragment.format);
+        insertFragmentWithLinks(cursor, fragment.text, fragment.format);
     }
     m_display->setTextCursor(cursor);
     m_display->ensureCursorVisible();
@@ -496,5 +539,7 @@ void MainWindow::applyRetroPalette()
     palette.setColor(QPalette::WindowText, QColor(0, 255, 136));
     palette.setColor(QPalette::Highlight, QColor(0, 128, 255));
     palette.setColor(QPalette::HighlightedText, QColor(0, 0, 0));
+    palette.setColor(QPalette::Link, QColor(0, 200, 255));
+    palette.setColor(QPalette::LinkVisited, QColor(0, 160, 224));
     qApp->setPalette(palette);
 }
