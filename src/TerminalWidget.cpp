@@ -1,10 +1,13 @@
 #include "TerminalWidget.h"
 
 #include <QEvent>
+#include <QFontDatabase>
 #include <QKeyEvent>
 #include <QLineEdit>
 #include <QScrollBar>
 #include <QTextBrowser>
+#include <QTextCharFormat>
+#include <QTextCursor>
 #include <QTextDocument>
 #include <QTextEdit>
 #include <QVBoxLayout>
@@ -35,6 +38,12 @@ TerminalWidget::TerminalWidget(QWidget *parent)
         m_input->installEventFilter(this);
         layout->addWidget(m_input);
     }
+
+    QFont baseFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+    if (baseFont.pointSizeF() <= 0) {
+        baseFont.setPointSizeF(10.0);
+    }
+    setTerminalFont(baseFont);
 }
 
 QTextBrowser *TerminalWidget::display() const
@@ -45,6 +54,38 @@ QTextBrowser *TerminalWidget::display() const
 QLineEdit *TerminalWidget::input() const
 {
     return m_input.data();
+}
+
+void TerminalWidget::setTerminalFont(const QFont &font)
+{
+    if (m_display) {
+        m_display->setFont(font);
+        if (auto *document = m_display->document()) {
+            document->setDefaultFont(font);
+
+            QTextCursor cursor(document);
+            cursor.select(QTextCursor::Document);
+
+            QTextCharFormat format;
+            format.setFontFamily(font.family());
+            if (font.pointSizeF() > 0) {
+                format.setFontPointSize(font.pointSizeF());
+            }
+            cursor.mergeCharFormat(format);
+        }
+    }
+
+    if (m_input) {
+        m_input->setFont(font);
+    }
+}
+
+QFont TerminalWidget::terminalFont() const
+{
+    if (m_display) {
+        return m_display->font();
+    }
+    return font();
 }
 
 bool TerminalWidget::eventFilter(QObject *watched, QEvent *event)

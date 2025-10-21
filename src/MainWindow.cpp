@@ -11,10 +11,14 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
+#include <QDoubleSpinBox>
 #include <QFileDialog>
 #include <QFont>
+#include <QFontComboBox>
 #include <QFontDatabase>
 #include <QFontMetricsF>
+#include <QFormLayout>
+#include <QFrame>
 #include <QHBoxLayout>
 #include <QInputDialog>
 #include <QLabel>
@@ -146,6 +150,80 @@ private:
     QPlainTextEdit *m_editor;
     QLabel *m_lineCountLabel;
     QPushButton *m_commitButton;
+};
+
+class AppearanceDialog : public QDialog
+{
+public:
+    explicit AppearanceDialog(const QFont &initialFont, QWidget *parent = nullptr)
+        : QDialog(parent)
+        , m_fontCombo(new QFontComboBox(this))
+        , m_sizeSpin(new QDoubleSpinBox(this))
+        , m_previewLabel(new QLabel(this))
+    {
+        setWindowTitle(tr("Appearance Settings"));
+        setModal(true);
+
+        m_fontCombo->setFontFilters(QFontComboBox::MonospacedFonts | QFontComboBox::ScalableFonts);
+        m_fontCombo->setEditable(false);
+
+        m_sizeSpin->setRange(6.0, 48.0);
+        m_sizeSpin->setDecimals(1);
+        m_sizeSpin->setSingleStep(0.5);
+
+        QFont baseFont = initialFont;
+        if (baseFont.pointSizeF() <= 0) {
+            baseFont.setPointSizeF(10.0);
+        }
+        m_fontCombo->setCurrentFont(baseFont);
+        m_sizeSpin->setValue(baseFont.pointSizeF());
+
+        m_previewLabel->setFrameShape(QFrame::StyledPanel);
+        m_previewLabel->setAlignment(Qt::AlignCenter);
+        m_previewLabel->setWordWrap(true);
+        m_previewLabel->setText(tr("0123456789 ABCDEFGHIJKLMNOPQRSTUVWXYZ\nabcdefghijklmnopqrstuvwxyz"));
+
+        auto *formLayout = new QFormLayout();
+        formLayout->addRow(tr("Font"), m_fontCombo);
+        formLayout->addRow(tr("Size"), m_sizeSpin);
+
+        auto *layout = new QVBoxLayout(this);
+        layout->addLayout(formLayout);
+        layout->addWidget(m_previewLabel);
+
+        auto *buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
+        connect(buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
+        connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
+        layout->addWidget(buttonBox);
+
+        connect(m_fontCombo, &QFontComboBox::currentFontChanged, this, [this](const QFont &) {
+            updatePreview();
+        });
+        connect(m_sizeSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double) {
+            updatePreview();
+        });
+
+        updatePreview();
+    }
+
+    QFont selectedFont() const
+    {
+        QFont font = m_fontCombo->currentFont();
+        font.setPointSizeF(m_sizeSpin->value());
+        font.setStyleHint(QFont::TypeWriter);
+        return font;
+    }
+
+private:
+    void updatePreview()
+    {
+        QFont preview = selectedFont();
+        m_previewLabel->setFont(preview);
+    }
+
+    QFontComboBox *m_fontCombo;
+    QDoubleSpinBox *m_sizeSpin;
+    QLabel *m_previewLabel;
 };
 
 struct FormattedFragment {
@@ -456,6 +534,7 @@ MainWindow::MainWindow(QWidget *parent)
     , m_disconnectAction(nullptr)
     , m_isConnected(false)
     , m_nicknameConfirmed(false)
+    , m_pendingLineBreak(false)
 {
     m_client = new ChatterClient(this);
 
@@ -464,15 +543,14 @@ MainWindow::MainWindow(QWidget *parent)
     setFont(retroFont);
 
     m_terminal = new TerminalWidget(this);
+    if (m_terminal) {
+        m_terminal->setTerminalFont(retroFont);
+    }
     setCentralWidget(m_terminal);
 
     m_display = m_terminal ? m_terminal->display() : nullptr;
     if (m_display) {
         m_display->setReadOnly(true);
-        m_display->setFont(retroFont);
-        if (auto *document = m_display->document()) {
-            document->setDefaultFont(retroFont);
-        }
         m_display->setOpenLinks(true);
         m_display->setOpenExternalLinks(true);
         m_display->setLineWrapMode(QTextEdit::NoWrap);
@@ -487,11 +565,9 @@ MainWindow::MainWindow(QWidget *parent)
     m_input = m_terminal ? m_terminal->input() : nullptr;
     if (m_input) {
         m_input->setPlaceholderText(tr("Type a message or pick a command from the menu"));
-        m_input->setFont(retroFont);
     }
 
     m_statusLabel = new QLabel(this);
-    m_statusLabel->setFont(retroFont);
     statusBar()->addWidget(m_statusLabel);
 
     createMenus();
@@ -636,6 +712,29 @@ void MainWindow::changeNickname()
     }
 }
 
+void MainWindow::openAppearanceSettings()
+{
+    if (!m_terminal) {
+        return;
+    }
+
+    QFont currentFont = m_terminal->terminalFont();
+    AppearanceDialog dialog(currentFont, this);
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    const QFont selectedFont = dialog.selectedFont();
+    m_terminal->setTerminalFont(selectedFont);
+    setFont(selectedFont);
+
+    if (m_statusLabel) {
+        m_statusLabel->setFont(selectedFont);
+    }
+
+    statusBar()->showMessage(tr("Font updated"), 2000);
+}
+
 void MainWindow::createMenus()
 {
     auto *sessionMenu = menuBar()->addMenu(tr("Session"));
@@ -643,6 +742,9 @@ void MainWindow::createMenus()
     sessionMenu->addAction(tr("Set Nickname..."), this, &MainWindow::changeNickname);
     m_disconnectAction = sessionMenu->addAction(tr("Disconnect"), this, &MainWindow::stopConnection);
     m_disconnectAction->setEnabled(false);
+
+    auto *viewMenu = menuBar()->addMenu(tr("View"));
+    viewMenu->addAction(tr("Font && Appearance..."), this, &MainWindow::openAppearanceSettings);
 
     auto *commandsMenu = menuBar()->addMenu(tr("Commands"));
     populateCommandMenu(commandsMenu);
@@ -666,6 +768,13 @@ void MainWindow::appendMessage(const QString &text, bool isError)
 
     QString sanitized = text;
     sanitized.replace("\r\n", "\n");
+
+    const bool hadTrailingNewline = sanitized.endsWith(QLatin1Char('\n'));
+    if (hadTrailingNewline) {
+        sanitized.chop(1);
+    }
+
+    const bool hasContent = !sanitized.isEmpty();
 
     QTextCharFormat baseFormat;
     baseFormat.setForeground(isError ? QBrush(Qt::red)
@@ -694,7 +803,15 @@ void MainWindow::appendMessage(const QString &text, bool isError)
     };
 
     cursor.beginEditBlock();
+
+    if (hasContent && m_pendingLineBreak) {
+        cursor.insertBlock();
+        m_pendingLineBreak = false;
+    }
+
     applyBlockFormat();
+
+    bool insertedAnyText = false;
 
     for (const auto &fragment : fragments) {
         const QString &fragmentText = fragment.text;
@@ -720,6 +837,9 @@ void MainWindow::appendMessage(const QString &text, bool isError)
                 const QString chunk = fragmentText.mid(position, breakIndex - position);
                 applyBlockFormat();
                 insertFragmentWithLinks(cursor, chunk, fragment.format);
+                if (!chunk.isEmpty()) {
+                    insertedAnyText = true;
+                }
             }
 
             if (control == ControlType::Newline) {
@@ -746,6 +866,12 @@ void MainWindow::appendMessage(const QString &text, bool isError)
     cursor.endEditBlock();
     m_display->setTextCursor(cursor);
     m_display->ensureCursorVisible();
+
+    if (hadTrailingNewline) {
+        m_pendingLineBreak = true;
+    } else if (insertedAnyText) {
+        m_pendingLineBreak = false;
+    }
 }
 
 QString MainWindow::promptForArgument(const QString &hint) const

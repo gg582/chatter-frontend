@@ -2,6 +2,7 @@
 
 #include <QWidget>
 #include <QPointer>
+#include <QFont>
 
 class QTextBrowser;
 class QLineEdit;
@@ -14,6 +15,9 @@ public:
 
     QTextBrowser *display() const;
     QLineEdit *input() const;
+
+    void setTerminalFont(const QFont &font);
+    QFont terminalFont() const;
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
