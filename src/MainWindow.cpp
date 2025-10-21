@@ -5,6 +5,7 @@
 #include "TerminalWidget.h"
 
 #include <QAction>
+#include <QByteArray>
 #include <QApplication>
 #include <QBrush>
 #include <QColor>
@@ -22,7 +23,6 @@
 #include <QHBoxLayout>
 #include <QInputDialog>
 #include <QLabel>
-#include <QLineEdit>
 #include <QList>
 #include <QMenuBar>
 #include <QPalette>
@@ -563,18 +563,11 @@ MainWindow::MainWindow(QWidget *parent)
         m_display->document()->setDefaultTextOption(textOption);
     }
 
-    m_input = m_terminal ? m_terminal->input() : nullptr;
-    if (m_input) {
-        m_input->setPlaceholderText(tr("Type a message or pick a command from the menu"));
-    }
-
     if (m_terminal) {
-        connect(m_terminal.data(), &TerminalWidget::keySequenceGenerated,
-                this, [this](const QByteArray &sequence) {
-                    if (!sequence.isEmpty() && m_client) {
-                        m_client->sendRawData(sequence);
-                    }
-                });
+        connect(m_terminal.data(), &TerminalWidget::bytesGenerated,
+                this, &MainWindow::handleTerminalInput);
+        connect(m_terminal.data(), &TerminalWidget::terminalSizeChanged,
+                this, &MainWindow::handleTerminalSizeChanged);
     }
 
     m_statusLabel = new QLabel(this);
@@ -583,10 +576,10 @@ MainWindow::MainWindow(QWidget *parent)
     createMenus();
     applyRetroPalette();
 
-    if (m_input) {
-        connect(m_input.data(), &QLineEdit::returnPressed,
-                this, &MainWindow::handleSendRequested);
+    if (m_terminal) {
+        m_terminal->setFocus();
     }
+
     connect(m_client.data(), &ChatterClient::outputReceived,
             this, &MainWindow::handleClientOutput);
     connect(m_client.data(), &ChatterClient::errorReceived,
@@ -601,21 +594,6 @@ MainWindow::MainWindow(QWidget *parent)
             m_statusLabel->setText(tr("Set a nickname to connect"));
         }
     });
-}
-
-void MainWindow::handleSendRequested()
-{
-    if (!m_client) {
-        return;
-    }
-
-    const QString text = m_input->text();
-    if (text.trimmed().isEmpty()) {
-        return;
-    }
-
-    m_client->sendCommand(text);
-    m_input->clear();
 }
 
 void MainWindow::handleClientOutput(const QString &text)
@@ -671,6 +649,24 @@ void MainWindow::handleCommandActionTriggered()
     }
 
     m_client->sendCommand(formatCommand(descriptor, argument));
+}
+
+void MainWindow::handleTerminalInput(const QByteArray &data)
+{
+    if (!m_client || data.isEmpty()) {
+        return;
+    }
+
+    m_client->sendRawData(data);
+}
+
+void MainWindow::handleTerminalSizeChanged(int columns, int rows)
+{
+    if (!m_client) {
+        return;
+    }
+
+    m_client->setTerminalSize(columns, rows);
 }
 
 void MainWindow::initiateConnection()

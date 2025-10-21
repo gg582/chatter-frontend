@@ -1,13 +1,11 @@
 #pragma once
 
-#include <QWidget>
-#include <QPointer>
-#include <QFont>
 #include <QByteArray>
+#include <QFont>
+#include <QPointer>
+#include <QWidget>
 
 class QTextBrowser;
-class QLineEdit;
-
 class TerminalWidget : public QWidget
 {
     Q_OBJECT
@@ -15,18 +13,25 @@ public:
     explicit TerminalWidget(QWidget *parent = nullptr);
 
     QTextBrowser *display() const;
-    QLineEdit *input() const;
 
     void setTerminalFont(const QFont &font);
     QFont terminalFont() const;
 
 signals:
-    void keySequenceGenerated(const QByteArray &sequence);
+    void bytesGenerated(const QByteArray &data);
+    void terminalSizeChanged(int columns, int rows);
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
+    void resizeEvent(QResizeEvent *event) override;
+    void focusInEvent(QFocusEvent *event) override;
 
 private:
+    void scheduleTerminalSizeUpdate();
+    void emitTerminalSize();
+    bool handleKeyPress(QKeyEvent *event);
+    QByteArray translateKeyEvent(QKeyEvent *event) const;
+
     QPointer<QTextBrowser> m_display;
-    QPointer<QLineEdit> m_input;
+    bool m_pendingSizeUpdate = false;
 };

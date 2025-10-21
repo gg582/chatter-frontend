@@ -20,4 +20,4 @@ add_executable(chatter-frontend
 
 target_include_directories(chatter-frontend PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
-target_link_libraries(chatter-frontend PRIVATE ${QT_PACKAGE}::Widgets)
+target_link_libraries(chatter-frontend PRIVATE ${QT_PACKAGE}::Widgets util)
