@@ -22,6 +22,8 @@ TerminalWidget::TerminalWidget(QWidget *parent)
         m_display->setObjectName(QStringLiteral("terminalDisplay"));
         m_display->installEventFilter(this);
         m_display->setLineWrapMode(QTextEdit::NoWrap);
+        m_display->setContentsMargins(0, 0, 0, 0);
+        m_display->setViewportMargins(0, 0, 0, 0);
         if (auto *doc = m_display->document()) {
             doc->setDocumentMargin(0);
         }

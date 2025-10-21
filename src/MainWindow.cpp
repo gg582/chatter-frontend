@@ -46,7 +46,6 @@
 #include <QIODevice>
 
 #include <algorithm>
-#include <cmath>
 
 namespace {
 
@@ -157,24 +156,24 @@ struct FormattedFragment {
 QColor basicAnsiColor(int index, bool bright)
 {
     static const QColor normal[] = {
-        QColor(0, 0, 0),       // black
-        QColor(170, 0, 0),     // red
-        QColor(0, 170, 0),     // green
-        QColor(170, 85, 0),    // yellow
-        QColor(0, 0, 170),     // blue
-        QColor(170, 0, 170),   // magenta
-        QColor(0, 170, 170),   // cyan
-        QColor(170, 170, 170)  // white
+        QColor(0, 0, 0),         // black
+        QColor(128, 0, 0),       // red
+        QColor(0, 128, 0),       // green
+        QColor(128, 128, 0),     // yellow
+        QColor(0, 0, 128),       // blue
+        QColor(128, 0, 128),     // magenta
+        QColor(0, 128, 128),     // cyan
+        QColor(192, 192, 192)    // white
     };
     static const QColor brightColors[] = {
-        QColor(85, 85, 85),    // bright black / gray
-        QColor(255, 85, 85),   // bright red
-        QColor(85, 255, 85),   // bright green
-        QColor(255, 255, 85),  // bright yellow
-        QColor(85, 85, 255),   // bright blue
-        QColor(255, 85, 255),  // bright magenta
-        QColor(85, 255, 255),  // bright cyan
-        QColor(255, 255, 255)  // bright white
+        QColor(128, 128, 128),   // bright black / gray
+        QColor(255, 0, 0),       // bright red
+        QColor(0, 255, 0),       // bright green
+        QColor(255, 255, 0),     // bright yellow
+        QColor(0, 0, 255),       // bright blue
+        QColor(255, 0, 255),     // bright magenta
+        QColor(0, 255, 255),     // bright cyan
+        QColor(255, 255, 255)    // bright white
     };
 
     index = qBound(0, index, 7);
@@ -460,7 +459,8 @@ MainWindow::MainWindow(QWidget *parent)
 {
     m_client = new ChatterClient(this);
 
-    const QFont retroFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+    QFont retroFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+    retroFont.setPointSizeF(10.0);
     setFont(retroFont);
 
     m_terminal = new TerminalWidget(this);
@@ -470,6 +470,9 @@ MainWindow::MainWindow(QWidget *parent)
     if (m_display) {
         m_display->setReadOnly(true);
         m_display->setFont(retroFont);
+        if (auto *document = m_display->document()) {
+            document->setDefaultFont(retroFont);
+        }
         m_display->setOpenLinks(true);
         m_display->setOpenExternalLinks(true);
         m_display->setLineWrapMode(QTextEdit::NoWrap);
@@ -683,7 +686,7 @@ void MainWindow::appendMessage(const QString &text, bool isError)
     blockFormat.setBottomMargin(0);
     blockFormat.setParagraphSpacing(0);
     const QFontMetricsF metrics(m_display->font());
-    const int lineHeight = qMax(1, static_cast<int>(std::round(metrics.ascent() + metrics.descent())));
+    const qreal lineHeight = std::max<qreal>(1.0, metrics.ascent() + metrics.descent());
     blockFormat.setLineHeight(lineHeight, QTextBlockFormat::FixedHeight);
 
     auto applyBlockFormat = [&]() {
@@ -893,13 +896,21 @@ void MainWindow::saveAsciiArtLocally(const QStringList &lines)
 void MainWindow::applyRetroPalette()
 {
     QPalette palette = qApp->palette();
-    palette.setColor(QPalette::Base, QColor(8, 16, 32));
-    palette.setColor(QPalette::Text, QColor(0, 255, 136));
-    palette.setColor(QPalette::Window, QColor(4, 8, 16));
-    palette.setColor(QPalette::WindowText, QColor(0, 255, 136));
-    palette.setColor(QPalette::Highlight, QColor(0, 128, 255));
-    palette.setColor(QPalette::HighlightedText, QColor(0, 0, 0));
-    palette.setColor(QPalette::Link, QColor(0, 200, 255));
-    palette.setColor(QPalette::LinkVisited, QColor(0, 160, 224));
+    const QColor background = basicAnsiColor(0, false);
+    const QColor foreground = basicAnsiColor(7, false);
+
+    palette.setColor(QPalette::Base, background);
+    palette.setColor(QPalette::AlternateBase, basicAnsiColor(0, true));
+    palette.setColor(QPalette::Text, foreground);
+    palette.setColor(QPalette::Window, background);
+    palette.setColor(QPalette::WindowText, foreground);
+    palette.setColor(QPalette::Button, background);
+    palette.setColor(QPalette::ButtonText, foreground);
+    palette.setColor(QPalette::BrightText, basicAnsiColor(7, true));
+    palette.setColor(QPalette::Highlight, basicAnsiColor(4, true));
+    palette.setColor(QPalette::HighlightedText, basicAnsiColor(7, true));
+    palette.setColor(QPalette::Link, basicAnsiColor(6, true));
+    palette.setColor(QPalette::LinkVisited, basicAnsiColor(5, true));
+
     qApp->setPalette(palette);
 }
