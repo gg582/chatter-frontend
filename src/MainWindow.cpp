@@ -793,7 +793,6 @@ void MainWindow::appendMessage(const QString &text, bool isError)
     QTextBlockFormat blockFormat;
     blockFormat.setTopMargin(0);
     blockFormat.setBottomMargin(0);
-    blockFormat.setParagraphSpacing(0);
     const QFontMetricsF metrics(m_display->font());
     const qreal lineHeight = std::max<qreal>(1.0, metrics.ascent() + metrics.descent());
     blockFormat.setLineHeight(lineHeight, QTextBlockFormat::FixedHeight);
