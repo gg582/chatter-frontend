@@ -785,7 +785,7 @@ void MainWindow::appendMessage(const QString &text, bool isError)
     QTextCharFormat baseFormat;
     baseFormat.setForeground(isError ? QBrush(Qt::red)
                                     : QBrush(m_display->palette().color(QPalette::Text)));
-    baseFormat.setBackground(QBrush(m_display->palette().color(QPalette::Base)));
+    baseFormat.setBackground(Qt::NoBrush);
     baseFormat.setFont(m_display->font());
     baseFormat.setFontWeight(QFont::Normal);
     baseFormat.setFontItalic(false);
@@ -799,8 +799,11 @@ void MainWindow::appendMessage(const QString &text, bool isError)
     QTextBlockFormat blockFormat;
     blockFormat.setTopMargin(0);
     blockFormat.setBottomMargin(0);
+    blockFormat.setLeftMargin(0);
+    blockFormat.setRightMargin(0);
+    blockFormat.setBackground(QBrush(m_display->palette().color(QPalette::Base)));
     const QFontMetricsF metrics(m_display->font());
-    const qreal lineHeight = std::max<qreal>(1.0, metrics.ascent() + metrics.descent());
+    const qreal lineHeight = std::max<qreal>(1.0, metrics.lineSpacing());
     blockFormat.setLineHeight(lineHeight, QTextBlockFormat::FixedHeight);
 
     auto applyBlockFormat = [&]() {
@@ -810,7 +813,7 @@ void MainWindow::appendMessage(const QString &text, bool isError)
     cursor.beginEditBlock();
 
     if (hasContent && m_pendingLineBreak) {
-        cursor.insertBlock();
+        cursor.insertBlock(blockFormat);
         m_pendingLineBreak = false;
     }
 
@@ -848,8 +851,7 @@ void MainWindow::appendMessage(const QString &text, bool isError)
             }
 
             if (control == ControlType::Newline) {
-                cursor.insertBlock();
-                applyBlockFormat();
+                cursor.insertBlock(blockFormat);
                 position = breakIndex + 1;
                 continue;
             }

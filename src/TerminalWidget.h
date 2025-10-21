@@ -6,6 +6,7 @@
 #include <QWidget>
 
 class QTextBrowser;
+class QLineEdit;
 class TerminalWidget : public QWidget
 {
     Q_OBJECT
@@ -27,11 +28,11 @@ protected:
     void focusInEvent(QFocusEvent *event) override;
 
 private:
+    void submitEntryText();
     void scheduleTerminalSizeUpdate();
     void emitTerminalSize();
-    bool handleKeyPress(QKeyEvent *event);
-    QByteArray translateKeyEvent(QKeyEvent *event) const;
 
     QPointer<QTextBrowser> m_display;
+    QPointer<QLineEdit> m_entry;
     bool m_pendingSizeUpdate = false;
 };
