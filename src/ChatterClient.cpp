@@ -98,6 +98,19 @@ void ChatterClient::sendCommand(const QString &command)
     m_process.write(data);
 }
 
+void ChatterClient::sendRawData(const QByteArray &data)
+{
+    if (data.isEmpty()) {
+        return;
+    }
+
+    if (m_process.state() == QProcess::NotRunning) {
+        start();
+    }
+
+    m_process.write(data);
+}
+
 void ChatterClient::handleReadyReadStandardOutput()
 {
     const QString text = QString::fromUtf8(m_process.readAllStandardOutput());

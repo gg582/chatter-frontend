@@ -4,13 +4,13 @@
 #include <QFontDatabase>
 #include <QKeyEvent>
 #include <QLineEdit>
-#include <QScrollBar>
 #include <QTextBrowser>
 #include <QTextCharFormat>
 #include <QTextCursor>
 #include <QTextDocument>
 #include <QTextEdit>
 #include <QVBoxLayout>
+#include <QByteArray>
 
 TerminalWidget::TerminalWidget(QWidget *parent)
     : QWidget(parent)
@@ -98,19 +98,34 @@ bool TerminalWidget::eventFilter(QObject *watched, QEvent *event)
         return QWidget::eventFilter(watched, event);
     }
 
-    const bool isArrowKey = keyEvent->key() == Qt::Key_Up || keyEvent->key() == Qt::Key_Down;
-    if (!isArrowKey) {
+    const int key = keyEvent->key();
+    const bool isArrowKey = key == Qt::Key_Up || key == Qt::Key_Down || key == Qt::Key_Left || key == Qt::Key_Right;
+    if (!isArrowKey || watched != m_display) {
         return QWidget::eventFilter(watched, event);
     }
 
-    if ((watched == m_display || watched == m_input) && m_display) {
-        if (auto *scrollBar = m_display->verticalScrollBar()) {
-            const int direction = keyEvent->key() == Qt::Key_Up ? -1 : 1;
-            const int step = scrollBar->singleStep();
-            scrollBar->setValue(scrollBar->value() + direction * step);
-            return true;
-        }
+    QByteArray sequence;
+    switch (key) {
+    case Qt::Key_Up:
+        sequence = "\x1b[A";
+        break;
+    case Qt::Key_Down:
+        sequence = "\x1b[B";
+        break;
+    case Qt::Key_Right:
+        sequence = "\x1b[C";
+        break;
+    case Qt::Key_Left:
+        sequence = "\x1b[D";
+        break;
+    default:
+        break;
     }
 
-    return QWidget::eventFilter(watched, event);
+    if (sequence.isEmpty()) {
+        return QWidget::eventFilter(watched, event);
+    }
+
+    emit keySequenceGenerated(sequence);
+    return true;
 }

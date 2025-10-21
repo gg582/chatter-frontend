@@ -3,6 +3,7 @@
 #include <QWidget>
 #include <QPointer>
 #include <QFont>
+#include <QByteArray>
 
 class QTextBrowser;
 class QLineEdit;
@@ -18,6 +19,9 @@ public:
 
     void setTerminalFont(const QFont &font);
     QFont terminalFont() const;
+
+signals:
+    void keySequenceGenerated(const QByteArray &sequence);
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
