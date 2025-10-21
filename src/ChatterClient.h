@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QProcess>
+#include <QByteArray>
 
 class ChatterClient : public QObject
 {
@@ -15,6 +16,7 @@ public:
     void start();
     void stop();
     void sendCommand(const QString &command);
+    void sendRawData(const QByteArray &data);
 
 signals:
     void outputReceived(const QString &text);

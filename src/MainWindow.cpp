@@ -48,6 +48,7 @@
 #include <QWidget>
 #include <QStandardPaths>
 #include <QIODevice>
+#include <QByteArray>
 
 #include <algorithm>
 
@@ -565,6 +566,15 @@ MainWindow::MainWindow(QWidget *parent)
     m_input = m_terminal ? m_terminal->input() : nullptr;
     if (m_input) {
         m_input->setPlaceholderText(tr("Type a message or pick a command from the menu"));
+    }
+
+    if (m_terminal) {
+        connect(m_terminal.data(), &TerminalWidget::keySequenceGenerated,
+                this, [this](const QByteArray &sequence) {
+                    if (!sequence.isEmpty() && m_client) {
+                        m_client->sendRawData(sequence);
+                    }
+                });
     }
 
     m_statusLabel = new QLabel(this);
