@@ -535,7 +535,6 @@ MainWindow::MainWindow(QWidget *parent)
     , m_disconnectAction(nullptr)
     , m_isConnected(false)
     , m_nicknameConfirmed(false)
-    , m_pendingLineBreak(false)
 {
     m_client = new ChatterClient(this);
 
@@ -799,73 +798,37 @@ void MainWindow::appendMessage(const QString &text, bool isError)
     QTextBlockFormat blockFormat;
     blockFormat.setTopMargin(0);
     blockFormat.setBottomMargin(0);
-    blockFormat.setLeftMargin(0);
-    blockFormat.setRightMargin(0);
-    blockFormat.setBackground(QBrush(m_display->palette().color(QPalette::Base)));
-    const QFontMetricsF metrics(m_display->font());
-    const qreal lineHeight = std::max<qreal>(1.0, metrics.lineSpacing());
-    blockFormat.setLineHeight(lineHeight, QTextBlockFormat::FixedHeight);
+    blockFormat.setLineHeight(100, QTextBlockFormat::ProportionalHeight);
 
     auto applyBlockFormat = [&]() {
         cursor.setBlockFormat(blockFormat);
     };
 
     cursor.beginEditBlock();
-
-    if (hasContent && m_pendingLineBreak) {
-        cursor.insertBlock(blockFormat);
-        m_pendingLineBreak = false;
-    }
-
     applyBlockFormat();
-
-    bool insertedAnyText = false;
 
     for (const auto &fragment : fragments) {
         const QString &fragmentText = fragment.text;
         int position = 0;
 
-        while (position < fragmentText.size()) {
+        while (position <= fragmentText.size()) {
             const int newlineIndex = fragmentText.indexOf(QLatin1Char('\n'), position);
-            const int carriageIndex = fragmentText.indexOf(QLatin1Char('\r'), position);
+            const bool hasNewline = newlineIndex != -1;
+            const int chunkEnd = hasNewline ? newlineIndex : fragmentText.size();
 
-            int breakIndex = fragmentText.size();
-            enum class ControlType { None, Newline, Carriage };
-            ControlType control = ControlType::None;
-
-            if (newlineIndex != -1 && (carriageIndex == -1 || newlineIndex < carriageIndex)) {
-                breakIndex = newlineIndex;
-                control = ControlType::Newline;
-            } else if (carriageIndex != -1) {
-                breakIndex = carriageIndex;
-                control = ControlType::Carriage;
-            }
-
-            if (breakIndex > position) {
-                const QString chunk = fragmentText.mid(position, breakIndex - position);
+            if (chunkEnd > position) {
+                const QString chunk = fragmentText.mid(position, chunkEnd - position);
                 applyBlockFormat();
                 insertFragmentWithLinks(cursor, chunk, fragment.format);
-                if (!chunk.isEmpty()) {
-                    insertedAnyText = true;
-                }
             }
 
-            if (control == ControlType::Newline) {
-                cursor.insertBlock(blockFormat);
-                position = breakIndex + 1;
-                continue;
-            }
-
-            if (control == ControlType::Carriage) {
-                cursor.movePosition(QTextCursor::StartOfBlock);
-                cursor.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
-                cursor.removeSelectedText();
+            if (hasNewline) {
+                cursor.insertBlock();
                 applyBlockFormat();
-                position = breakIndex + 1;
+                position = newlineIndex + 1;
                 continue;
             }
 
-            position = breakIndex;
             break;
         }
     }
@@ -873,12 +836,6 @@ void MainWindow::appendMessage(const QString &text, bool isError)
     cursor.endEditBlock();
     m_display->setTextCursor(cursor);
     m_display->ensureCursorVisible();
-
-    if (hadTrailingNewline) {
-        m_pendingLineBreak = true;
-    } else if (insertedAnyText) {
-        m_pendingLineBreak = false;
-    }
 }
 
 QString MainWindow::promptForArgument(const QString &hint) const
