@@ -5,19 +5,24 @@
 #include "TerminalWidget.h"
 
 #include <QAction>
+#include <QByteArray>
 #include <QApplication>
 #include <QBrush>
 #include <QColor>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
+#include <QDoubleSpinBox>
 #include <QFileDialog>
 #include <QFont>
+#include <QFontComboBox>
 #include <QFontDatabase>
+#include <QFontMetricsF>
+#include <QFormLayout>
+#include <QFrame>
 #include <QHBoxLayout>
 #include <QInputDialog>
 #include <QLabel>
-#include <QLineEdit>
 #include <QList>
 #include <QMenuBar>
 #include <QPalette>
@@ -43,6 +48,7 @@
 #include <QWidget>
 #include <QStandardPaths>
 #include <QIODevice>
+#include <QByteArray>
 
 #include <algorithm>
 
@@ -147,6 +153,80 @@ private:
     QPushButton *m_commitButton;
 };
 
+class AppearanceDialog : public QDialog
+{
+public:
+    explicit AppearanceDialog(const QFont &initialFont, QWidget *parent = nullptr)
+        : QDialog(parent)
+        , m_fontCombo(new QFontComboBox(this))
+        , m_sizeSpin(new QDoubleSpinBox(this))
+        , m_previewLabel(new QLabel(this))
+    {
+        setWindowTitle(tr("Appearance Settings"));
+        setModal(true);
+
+        m_fontCombo->setFontFilters(QFontComboBox::MonospacedFonts | QFontComboBox::ScalableFonts);
+        m_fontCombo->setEditable(false);
+
+        m_sizeSpin->setRange(6.0, 48.0);
+        m_sizeSpin->setDecimals(1);
+        m_sizeSpin->setSingleStep(0.5);
+
+        QFont baseFont = initialFont;
+        if (baseFont.pointSizeF() <= 0) {
+            baseFont.setPointSizeF(10.0);
+        }
+        m_fontCombo->setCurrentFont(baseFont);
+        m_sizeSpin->setValue(baseFont.pointSizeF());
+
+        m_previewLabel->setFrameShape(QFrame::StyledPanel);
+        m_previewLabel->setAlignment(Qt::AlignCenter);
+        m_previewLabel->setWordWrap(true);
+        m_previewLabel->setText(tr("0123456789 ABCDEFGHIJKLMNOPQRSTUVWXYZ\nabcdefghijklmnopqrstuvwxyz"));
+
+        auto *formLayout = new QFormLayout();
+        formLayout->addRow(tr("Font"), m_fontCombo);
+        formLayout->addRow(tr("Size"), m_sizeSpin);
+
+        auto *layout = new QVBoxLayout(this);
+        layout->addLayout(formLayout);
+        layout->addWidget(m_previewLabel);
+
+        auto *buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
+        connect(buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
+        connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
+        layout->addWidget(buttonBox);
+
+        connect(m_fontCombo, &QFontComboBox::currentFontChanged, this, [this](const QFont &) {
+            updatePreview();
+        });
+        connect(m_sizeSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double) {
+            updatePreview();
+        });
+
+        updatePreview();
+    }
+
+    QFont selectedFont() const
+    {
+        QFont font = m_fontCombo->currentFont();
+        font.setPointSizeF(m_sizeSpin->value());
+        font.setStyleHint(QFont::TypeWriter);
+        return font;
+    }
+
+private:
+    void updatePreview()
+    {
+        QFont preview = selectedFont();
+        m_previewLabel->setFont(preview);
+    }
+
+    QFontComboBox *m_fontCombo;
+    QDoubleSpinBox *m_sizeSpin;
+    QLabel *m_previewLabel;
+};
+
 struct FormattedFragment {
     QString text;
     QTextCharFormat format;
@@ -155,24 +235,24 @@ struct FormattedFragment {
 QColor basicAnsiColor(int index, bool bright)
 {
     static const QColor normal[] = {
-        QColor(0, 0, 0),       // black
-        QColor(170, 0, 0),     // red
-        QColor(0, 170, 0),     // green
-        QColor(170, 85, 0),    // yellow
-        QColor(0, 0, 170),     // blue
-        QColor(170, 0, 170),   // magenta
-        QColor(0, 170, 170),   // cyan
-        QColor(170, 170, 170)  // white
+        QColor(0, 0, 0),         // black
+        QColor(128, 0, 0),       // red
+        QColor(0, 128, 0),       // green
+        QColor(128, 128, 0),     // yellow
+        QColor(0, 0, 128),       // blue
+        QColor(128, 0, 128),     // magenta
+        QColor(0, 128, 128),     // cyan
+        QColor(192, 192, 192)    // white
     };
     static const QColor brightColors[] = {
-        QColor(85, 85, 85),    // bright black / gray
-        QColor(255, 85, 85),   // bright red
-        QColor(85, 255, 85),   // bright green
-        QColor(255, 255, 85),  // bright yellow
-        QColor(85, 85, 255),   // bright blue
-        QColor(255, 85, 255),  // bright magenta
-        QColor(85, 255, 255),  // bright cyan
-        QColor(255, 255, 255)  // bright white
+        QColor(128, 128, 128),   // bright black / gray
+        QColor(255, 0, 0),       // bright red
+        QColor(0, 255, 0),       // bright green
+        QColor(255, 255, 0),     // bright yellow
+        QColor(0, 0, 255),       // bright blue
+        QColor(255, 0, 255),     // bright magenta
+        QColor(0, 255, 255),     // bright cyan
+        QColor(255, 255, 255)    // bright white
     };
 
     index = qBound(0, index, 7);
@@ -458,16 +538,19 @@ MainWindow::MainWindow(QWidget *parent)
 {
     m_client = new ChatterClient(this);
 
-    const QFont retroFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+    QFont retroFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+    retroFont.setPointSizeF(10.0);
     setFont(retroFont);
 
     m_terminal = new TerminalWidget(this);
+    if (m_terminal) {
+        m_terminal->setTerminalFont(retroFont);
+    }
     setCentralWidget(m_terminal);
 
     m_display = m_terminal ? m_terminal->display() : nullptr;
     if (m_display) {
         m_display->setReadOnly(true);
-        m_display->setFont(retroFont);
         m_display->setOpenLinks(true);
         m_display->setOpenExternalLinks(true);
         m_display->setLineWrapMode(QTextEdit::NoWrap);
@@ -479,23 +562,23 @@ MainWindow::MainWindow(QWidget *parent)
         m_display->document()->setDefaultTextOption(textOption);
     }
 
-    m_input = m_terminal ? m_terminal->input() : nullptr;
-    if (m_input) {
-        m_input->setPlaceholderText(tr("Type a message or pick a command from the menu"));
-        m_input->setFont(retroFont);
+    if (m_terminal) {
+        connect(m_terminal.data(), &TerminalWidget::bytesGenerated,
+                this, &MainWindow::handleTerminalInput);
+        connect(m_terminal.data(), &TerminalWidget::terminalSizeChanged,
+                this, &MainWindow::handleTerminalSizeChanged);
     }
 
     m_statusLabel = new QLabel(this);
-    m_statusLabel->setFont(retroFont);
     statusBar()->addWidget(m_statusLabel);
 
     createMenus();
     applyRetroPalette();
 
-    if (m_input) {
-        connect(m_input.data(), &QLineEdit::returnPressed,
-                this, &MainWindow::handleSendRequested);
+    if (m_terminal) {
+        m_terminal->setFocus();
     }
+
     connect(m_client.data(), &ChatterClient::outputReceived,
             this, &MainWindow::handleClientOutput);
     connect(m_client.data(), &ChatterClient::errorReceived,
@@ -510,21 +593,6 @@ MainWindow::MainWindow(QWidget *parent)
             m_statusLabel->setText(tr("Set a nickname to connect"));
         }
     });
-}
-
-void MainWindow::handleSendRequested()
-{
-    if (!m_client) {
-        return;
-    }
-
-    const QString text = m_input->text();
-    if (text.trimmed().isEmpty()) {
-        return;
-    }
-
-    m_client->sendCommand(text);
-    m_input->clear();
 }
 
 void MainWindow::handleClientOutput(const QString &text)
@@ -582,6 +650,24 @@ void MainWindow::handleCommandActionTriggered()
     m_client->sendCommand(formatCommand(descriptor, argument));
 }
 
+void MainWindow::handleTerminalInput(const QByteArray &data)
+{
+    if (!m_client || data.isEmpty()) {
+        return;
+    }
+
+    m_client->sendRawData(data);
+}
+
+void MainWindow::handleTerminalSizeChanged(int columns, int rows)
+{
+    if (!m_client) {
+        return;
+    }
+
+    m_client->setTerminalSize(columns, rows);
+}
+
 void MainWindow::initiateConnection()
 {
     if (qEnvironmentVariableIsSet("CHATTER_FRONTEND_DISABLE_AUTOSTART")) {
@@ -631,6 +717,29 @@ void MainWindow::changeNickname()
     }
 }
 
+void MainWindow::openAppearanceSettings()
+{
+    if (!m_terminal) {
+        return;
+    }
+
+    QFont currentFont = m_terminal->terminalFont();
+    AppearanceDialog dialog(currentFont, this);
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    const QFont selectedFont = dialog.selectedFont();
+    m_terminal->setTerminalFont(selectedFont);
+    setFont(selectedFont);
+
+    if (m_statusLabel) {
+        m_statusLabel->setFont(selectedFont);
+    }
+
+    statusBar()->showMessage(tr("Font updated"), 2000);
+}
+
 void MainWindow::createMenus()
 {
     auto *sessionMenu = menuBar()->addMenu(tr("Session"));
@@ -638,6 +747,9 @@ void MainWindow::createMenus()
     sessionMenu->addAction(tr("Set Nickname..."), this, &MainWindow::changeNickname);
     m_disconnectAction = sessionMenu->addAction(tr("Disconnect"), this, &MainWindow::stopConnection);
     m_disconnectAction->setEnabled(false);
+
+    auto *viewMenu = menuBar()->addMenu(tr("View"));
+    viewMenu->addAction(tr("Font && Appearance..."), this, &MainWindow::openAppearanceSettings);
 
     auto *commandsMenu = menuBar()->addMenu(tr("Commands"));
     populateCommandMenu(commandsMenu);
@@ -661,12 +773,18 @@ void MainWindow::appendMessage(const QString &text, bool isError)
 
     QString sanitized = text;
     sanitized.replace("\r\n", "\n");
-    sanitized.replace('\r', '\n');
+
+    const bool hadTrailingNewline = sanitized.endsWith(QLatin1Char('\n'));
+    if (hadTrailingNewline) {
+        sanitized.chop(1);
+    }
+
+    const bool hasContent = !sanitized.isEmpty();
 
     QTextCharFormat baseFormat;
     baseFormat.setForeground(isError ? QBrush(Qt::red)
                                     : QBrush(m_display->palette().color(QPalette::Text)));
-    baseFormat.setBackground(QBrush(m_display->palette().color(QPalette::Base)));
+    baseFormat.setBackground(Qt::NoBrush);
     baseFormat.setFont(m_display->font());
     baseFormat.setFontWeight(QFont::Normal);
     baseFormat.setFontItalic(false);
@@ -868,13 +986,21 @@ void MainWindow::saveAsciiArtLocally(const QStringList &lines)
 void MainWindow::applyRetroPalette()
 {
     QPalette palette = qApp->palette();
-    palette.setColor(QPalette::Base, QColor(8, 16, 32));
-    palette.setColor(QPalette::Text, QColor(0, 255, 136));
-    palette.setColor(QPalette::Window, QColor(4, 8, 16));
-    palette.setColor(QPalette::WindowText, QColor(0, 255, 136));
-    palette.setColor(QPalette::Highlight, QColor(0, 128, 255));
-    palette.setColor(QPalette::HighlightedText, QColor(0, 0, 0));
-    palette.setColor(QPalette::Link, QColor(0, 200, 255));
-    palette.setColor(QPalette::LinkVisited, QColor(0, 160, 224));
+    const QColor background = basicAnsiColor(0, false);
+    const QColor foreground = basicAnsiColor(7, false);
+
+    palette.setColor(QPalette::Base, background);
+    palette.setColor(QPalette::AlternateBase, basicAnsiColor(0, true));
+    palette.setColor(QPalette::Text, foreground);
+    palette.setColor(QPalette::Window, background);
+    palette.setColor(QPalette::WindowText, foreground);
+    palette.setColor(QPalette::Button, background);
+    palette.setColor(QPalette::ButtonText, foreground);
+    palette.setColor(QPalette::BrightText, basicAnsiColor(7, true));
+    palette.setColor(QPalette::Highlight, basicAnsiColor(4, true));
+    palette.setColor(QPalette::HighlightedText, basicAnsiColor(7, true));
+    palette.setColor(QPalette::Link, basicAnsiColor(6, true));
+    palette.setColor(QPalette::LinkVisited, basicAnsiColor(5, true));
+
     qApp->setPalette(palette);
 }

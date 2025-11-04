@@ -1,10 +1,10 @@
 #pragma once
 
+#include <QByteArray>
 #include <QMainWindow>
 #include <QPointer>
 #include <QStringList>
 
-class QLineEdit;
 class QTextBrowser;
 class QLabel;
 class QAction;
@@ -20,14 +20,16 @@ public:
     explicit MainWindow(QWidget *parent = nullptr);
 
 private slots:
-    void handleSendRequested();
     void handleClientOutput(const QString &text);
     void handleClientError(const QString &text);
     void handleConnectionStateChanged(bool connected);
     void handleCommandActionTriggered();
+    void handleTerminalInput(const QByteArray &data);
+    void handleTerminalSizeChanged(int columns, int rows);
     void initiateConnection();
     void stopConnection();
     void changeNickname();
+    void openAppearanceSettings();
 
 private:
     void createMenus();
@@ -42,7 +44,6 @@ private:
 
     QPointer<TerminalWidget> m_terminal;
     QPointer<QTextBrowser> m_display;
-    QPointer<QLineEdit> m_input;
     QPointer<QLabel> m_statusLabel;
     QPointer<ChatterClient> m_client;
     QAction *m_connectAction;
